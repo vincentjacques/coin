@@ -246,7 +246,6 @@ contract Migrable is TokenBase, Owned
 
 
     function migrate() external {
-        // Abort if not in Operational Migration state.
         if (migrationAgent == 0)  revert();
         if (_balances[msg.sender] == 0)  revert();
         
@@ -274,9 +273,9 @@ contract CrowdCoin is TokenBase, Owned, Migrable {
     
     uint private ico_allocation = 4000000 * WAD;
 
-    bool public locked = true; 
+    bool public locked = true;
 
-    address public bounty; 
+    address public bounty;
     CrowdCoinPreICO public pre_ico;
     CrowdCoinICO public ico;
     address team_allocation;
@@ -288,7 +287,7 @@ contract CrowdCoin is TokenBase, Owned, Migrable {
     
     function transfer(address to, uint value) returns (bool)
     {
-        if (locked == true && (msg.sender != address(ico) && msg.sender != address(pre_ico))) revert();
+        if (locked == true && msg.sender != address(ico) && msg.sender != address(pre_ico)) revert();
         return super.transfer(to, value);
     }
     
@@ -307,18 +306,13 @@ contract CrowdCoin is TokenBase, Owned, Migrable {
     
     function close_pre_ico() onlyOwner
     {
-        if (_balances[pre_ico] > 0)
-        {
-            ico_allocation = add(ico_allocation, _balances[pre_ico]);   
-            burn_tokens(pre_ico, _balances[pre_ico]);
-        }
-        
-        pre_ico.close();
+        ico_allocation = add(ico_allocation, _balances[pre_ico]);   
+        burn_balance(pre_ico);
     }
 
     function init_ico(address _ico) onlyOwner
     {
-        if (address(0) != address(ico)) revert();
+        if (address(0) != address(ico) || _balances[pre_ico] > 0) revert();
         ico = CrowdCoinICO(_ico);
         mint_tokens(ico, ico_allocation);
     }
@@ -331,11 +325,8 @@ contract CrowdCoin is TokenBase, Owned, Migrable {
     }
     
     function finalize() onlyOwner {
-        if (ico.is_success() == false || locked == false) revert();
-        if (_balances[ico] > 0)
-        {
-            burn_tokens(ico, _balances[ico]);
-        }
+        if (ico.successfully_closed() == false || locked == false) revert();
+        burn_balance(ico);
 
         uint256 percentOfTotal = 25;
         uint256 additionalTokens =
@@ -353,12 +344,15 @@ contract CrowdCoin is TokenBase, Owned, Migrable {
         Transfer(0, addr, amount);
     }
     
-    function burn_tokens(address addr, uint amount) private
+    function burn_balance(address addr) private
     {
-        if (_balances[addr] < amount) revert();
-        _balances[addr] = sub(_balances[addr], amount);
-        _supply = sub(_supply, amount);
-        Transfer(addr, 0, amount);
+        uint amount = _balances[addr];
+        if (amount > 0)
+        {
+            _balances[addr] = 0;
+            _supply = sub(_supply, amount);
+            Transfer(addr, 0, amount);
+        }
     }
 }
 
@@ -370,8 +364,7 @@ contract CrowdCoinPreICO is Owned, DSMath
     
     uint public total_raised;
 
-    uint public constant price =  0.0005 * 10**18;
-    bool private closed = false;
+    uint public constant price =  0.0005 * 10**18; //have to set price here
 
     function my_token_balance() public constant returns (uint)
     {
@@ -392,7 +385,7 @@ contract CrowdCoinPreICO is Owned, DSMath
     
     function () has_value payable external 
     {
-        if (my_token_balance() == 0 || closed == true) revert();
+        if (my_token_balance() == 0) revert();
 
         var can_buy = wdiv(cast(msg.value), cast(price));
         var buy_amount = cast(min(can_buy, my_token_balance()));
@@ -404,17 +397,140 @@ contract CrowdCoinPreICO is Owned, DSMath
         dev_multisig.transfer(this.balance); //transfer eth to dev
         token.transfer(msg.sender, buy_amount); //transfer tokens to participant
     }
+}
+
+contract CrowdCoinICO is Owned, DSMath
+{
+    CrowdCoin public token;
+    address public dev_multisig; //multisignature wallet to collect funds
     
-    function close()
+    uint public total_raised; //crowdsale total funds raised
+
+    uint public constant start_time = 0;
+    uint public constant end_time = 0;
+    uint public constant goal = 100 ether;
+    uint256 public constant default_price = 0.0004 * 10**18;
+    
+    mapping (uint => uint256) public price;
+
+    mapping(address => uint) funded; //needed to save amounts of ETH for refund
+    
+    modifier in_time //allows send eth only when crowdsale is active
     {
-        if (msg.sender != address(token)) revert();
-        closed = true;
+        if (time() < start_time || time() > end_time)  revert();
+        _;
+    }
+
+    function successfully_closed() public constant returns (bool)
+    {
+        return time() > start_time && (time() > end_time || my_token_balance() == 0) && total_raised >= goal;
+    }
+    
+    function time() public constant returns (uint)
+    {
+        return block.timestamp;
+    }
+    
+    function my_token_balance() public constant returns (uint)
+    {
+        return token.balanceOf(this);
+    }
+
+    modifier has_value
+    {
+        if (msg.value < 0.01 ether) revert();
+        _;
+    }
+
+    function CrowdCoinICO(address _token_address, address _dev_multisig)
+    {
+        token = CrowdCoin(_token_address);
+        dev_multisig = _dev_multisig;
+        
+        price[0] = 0.0001 * 10**18;
+        price[1] = 0.0002 * 10**18;
+        price[2] = 0.0003 * 10**18;
+        price[3] = 0.0004 * 10**18;
+    }
+    
+    function () has_value in_time payable external 
+    {
+        if (my_token_balance() == 0) revert();
+
+        var can_buy = wdiv(cast(msg.value), cast(get_current_price()));
+        var buy_amount = cast(min(can_buy, my_token_balance()));
+
+        if (can_buy > buy_amount) revert();
+
+        total_raised = add(total_raised, msg.value);
+
+        dev_multisig.transfer(this.balance); //transfer eth to dev
+        token.transfer(msg.sender, buy_amount); //transfer tokens to participant
+    }
+    
+    function refund()
+    {
+        if (total_raised >= goal || time() < end_time) revert();
+        var amount = funded[msg.sender];
+        if (amount > 0)
+        {
+            funded[msg.sender] = 0;
+            msg.sender.transfer(amount);
+        }
+    }
+    
+    function collect() //collect eth by devs if min goal reached
+    {
+        if (total_raised < goal) revert();
+        dev_multisig.transfer(this.balance);
+    }
+    
+    function get_current_price() constant returns (uint256) {
+        return price[current_week()] == 0 ? default_price : price[current_week()];
+    }
+    
+    function current_week() constant returns (uint) {
+        return sub(block.timestamp, start_time) / 7 days;
     }
 }
 
 
-contract CrowdCoinICO {
-    function is_success() returns (bool);
+contract CrowdDevAllocation is Owned
+{
+    CrowdCoin public token;
+    uint public initial_time;
+    address tokens_multisig;
+
+    mapping(uint => bool) public unlocked;
+    mapping(uint => uint) public unlock_times;
+    mapping(uint => uint) unlock_values;
+    
+    function CrowdDevAllocation(address _token)
+    {
+        token = CrowdCoin(_token);
+    }
+    
+    function init() onlyOwner
+    {
+        if (token.balanceOf(this) == 0 || initial_time != 0) revert();
+        initial_time = block.timestamp;
+        uint256 balance = token.balanceOf(this);
+
+        unlock_values[0] = balance / 100 * 33;
+        unlock_values[1] = balance / 100 * 33;
+        unlock_values[2] = balance / 100 * 34;
+
+        unlock_times[0] = 180 days; //33% of tokens will be available after 180 days
+        unlock_times[1] = 1080 days; //33% of tokens will be available after 1080 days
+        unlock_times[2] = 1800 days; //34% of tokens will be available after 1800 days
+    }
+
+    function unlock(uint part)
+    {
+        if (unlocked[part] == true || block.timestamp < initial_time + unlock_times[part] || unlock_values[part] == 0) revert();
+        token.transfer(tokens_multisig, unlock_values[part]);
+        unlocked[part] = true;
+    }
 }
 
 contract MigrationAgent {
