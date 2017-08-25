@@ -1,19 +1,19 @@
 pragma solidity ^0.4.14;
 
-contract ERC20 {
-    function totalSupply() constant returns (uint supply);
-    function balanceOf( address who ) constant returns (uint value);
-    function allowance( address owner, address spender ) constant returns (uint _allowance);
+contract ERC20 { // інтерфейс стандурту, свідчить про те що в тих хто це наслідує мають бути такі методи, так званий стандарт ERC20
+    function totalSupply() constant returns (uint supply); // загальна кількість монет
+    function balanceOf( address who ) constant returns (uint value); // баланс конкретного гаманця
+    function allowance( address owner, address spender ) constant returns (uint _allowance); // тут перевіряється чи дозволено перевід від чужого імені
 
-    function transfer( address to, uint value) returns (bool ok);
-    function transferFrom( address from, address to, uint value) returns (bool ok);
-    function approve( address spender, uint value ) returns (bool ok);
+    function transfer( address to, uint value) returns (bool ok); // функція що переводить токен з балансу на баланс
+    function transferFrom( address from, address to, uint value) returns (bool ok); //функція переводу токена з чужого балансу, якщо дозволено власником
+    function approve( address spender, uint value ) returns (bool ok); //тут можна дати дозвіл перевід з мого балансу комусь певої суми
 
-    event Transfer( address indexed from, address indexed to, uint value);
-    event Approval( address indexed owner, address indexed spender, uint value);
+    event Transfer( address indexed from, address indexed to, uint value); //Описана подія про перевід
+    event Approval( address indexed owner, address indexed spender, uint value);//Описана подія про дозвіл переводити третій особі
 }
 
-contract DSMath {
+contract DSMath {//Чужа бібліотека, що спрощує життя солідіті кодеру
     
     /*
     standard uint256 functions
@@ -173,22 +173,22 @@ contract DSMath {
 
 }
 
-contract TokenBase is ERC20, DSMath {
-    uint256                                            _supply;
-    mapping (address => uint256)                       _balances;
-    mapping (address => mapping (address => uint256))  _approvals;
+contract TokenBase is ERC20, DSMath { //база монети, наслідує бібліотеку, стандартний токен
+    uint256                                            _supply; //змінна загальної кількості монет
+    mapping (address => uint256)                       _balances; //баланси
+    mapping (address => mapping (address => uint256))  _approvals; //масив дозволів для третіх осіб
 
-    function totalSupply() constant returns (uint256) {
+    function totalSupply() constant returns (uint256) { //див опис в ERC20
         return _supply;
     }
-    function balanceOf(address addr) constant returns (uint256) {
+    function balanceOf(address addr) constant returns (uint256) {//див опис в ERC20
         return _balances[addr];
     }
-    function allowance(address from, address to) constant returns (uint256) {
+    function allowance(address from, address to) constant returns (uint256) {//див опис в ERC20
         return _approvals[from][to];
     }
     
-    function transfer(address to, uint value) returns (bool) {
+    function transfer(address to, uint value) returns (bool) {//див опис в ERC20
         assert(_balances[msg.sender] >= value);
         
         _balances[msg.sender] = sub(_balances[msg.sender], value);
@@ -199,7 +199,7 @@ contract TokenBase is ERC20, DSMath {
         return true;
     }
     
-    function transferFrom(address from, address to, uint value) returns (bool) {
+    function transferFrom(address from, address to, uint value) returns (bool) {//див опис в ERC20
         assert(_balances[from] >= value);
         assert(_approvals[from][msg.sender] >= value);
         
@@ -212,7 +212,7 @@ contract TokenBase is ERC20, DSMath {
         return true;
     }
     
-    function approve(address to, uint256 value) returns (bool) {
+    function approve(address to, uint256 value) returns (bool) {//див опис в ERC20
         _approvals[msg.sender][to] = value;
         
         Approval(msg.sender, to, value);
@@ -222,253 +222,252 @@ contract TokenBase is ERC20, DSMath {
 
 }
 
-contract Owned
+contract Owned //контракт, що має змінну owner, і записує в неї того хто його створив
 {
     address public owner;
     
-    function Owned()
+    function Owned()//конструктор контракту, виконується один раз при створенні контракту
     {
         owner = msg.sender;
     }
     
-    modifier onlyOwner()
+    modifier onlyOwner()//modifier - це функція яка виконається перед тілом функції до якої застосовується. знак _ - це тіло функції до якої застосовується.
     {
-        if (msg.sender != owner) revert();
+        if (msg.sender != owner) revert(); //перевірка, якщо виконується не власником контракту, обірвати виконання та вийти.
         _;
     }
 }
 
-contract Migrable is TokenBase, Owned
+contract Migrable is TokenBase, Owned //контракт який призначений для міграції монети в інший контракт в майбутньому.
 {
     event Migrate(address indexed _from, address indexed _to, uint256 _value);
-    address public migrationAgent;
-    uint256 public totalMigrated;
+    address public migrationAgent; //адрес куда мігрувати
+    uint256 public totalMigrated;//скільки монет мігровано
 
 
-    function migrate() external {
-        if (migrationAgent == 0)  revert();
-        if (_balances[msg.sender] == 0)  revert();
+    function migrate() external { //основна функція міграції, мігрує весь баланс в новий контракт
+        if (migrationAgent == 0)  revert(); //якщо нема куда мігрувати, обірвати виконання
+        if (_balances[msg.sender] == 0)  revert(); //якщо нема що мігрувати, обірвати виконання
         
         uint256 _value = _balances[msg.sender];
-        _balances[msg.sender] = 0;
-        _supply = sub(_supply, _value);
-        totalMigrated = add(totalMigrated, _value);
-        MigrationAgent(migrationAgent).migrateFrom(msg.sender, _value);
-        Migrate(msg.sender, migrationAgent, _value);
+        _balances[msg.sender] = 0; //обнуляєм баланс
+        _supply = sub(_supply, _value);//зменшуєм загальну кількість монт
+        totalMigrated = add(totalMigrated, _value);//добавляємо до мігрованих
+        MigrationAgent(migrationAgent).migrateFrom(msg.sender, _value);//викликаємо функцію в контракті куда мігруємо скільки монет мігровано і звідки
+        Migrate(msg.sender, migrationAgent, _value);//створюємо подію про це (сповіщення)
     }
 
-    function setMigrationAgent(address _agent) onlyOwner external {
-        if (migrationAgent != 0)  revert();
-        migrationAgent = _agent;
+    function setMigrationAgent(address _agent) onlyOwner external { //встановлюємо контракт куда мігрувати, може бути викликана тільки власником
+        if (migrationAgent != 0)  revert();//обірвати якщо вже встановлено
+        migrationAgent = _agent; //присвоюємо контракт для міграції в змінну
     }
 }
 
-contract CrowdCoin is TokenBase, Owned, Migrable {
-    string public constant name = "Crowd Coin";
-    string public constant symbol = "CRC";
-    uint8 public constant decimals = 18; 
+contract CrowdCoin is TokenBase, Owned, Migrable { //Монетка, наслідує базовий токен, може мати власника, може бути мігрована
+    string public constant name = "Crowd Coin";//Назва
+    string public constant symbol = "CRC";//Символ
+    uint8 public constant decimals = 18; //Кількість знаків після коми (це абстракція, дрібних чисел в солідіті не існує як таких)
 
-    uint public constant pre_ico_allocation = 3500000 * WAD;
-    uint public constant bounty_allocation = 500000 * WAD;
+    uint public constant pre_ico_allocation = 3500000 * WAD; //Кількісь монет що буде виділено на пресейл
+    uint public constant bounty_allocation = 500000 * WAD;//Кількісь монет що буде виділено на баунті
     
-    uint private ico_allocation = 4000000 * WAD;
+    uint private ico_allocation = 4000000 * WAD; //Кількісь монет що буде виділено на ICO
 
-    bool public locked = true;
+    bool public locked = true; //Змінна яка не дозволяє перевід токенів поки не буде успішного ICO
 
-    address public bounty;
-    CrowdCoinPreICO public pre_ico;
-    CrowdCoinICO public ico;
-    address team_allocation;
+    address public bounty; //описується адреса баунті контракту
+    CrowdCoinPreICO public pre_ico;//описується контракт preICO
+    CrowdCoinICO public ico;//описується контракт ICO
+    address team_allocation;//описується адреса для переводу токенів команді
     
 
-    function CrowdCoin(address _team_allocation) {
-        team_allocation = _team_allocation;
+    function CrowdCoin(address _team_allocation) { //конструктор
+        team_allocation = _team_allocation; //присвоюємо адресу контракту де будуть лежати токени команди (мусить бути перед тим створено)
     }
     
-    function transfer(address to, uint value) returns (bool)
+    function transfer(address to, uint value) returns (bool) //обриває перевід монет якщо ще не розблоковано. Дозволяє переводити тільки від імені ICO, preICO
     {
         if (locked == true && msg.sender != address(ico) && msg.sender != address(pre_ico)) revert();
         return super.transfer(to, value);
     }
     
-    function transferFrom(address from, address to, uint value)  returns (bool)
+    function transferFrom(address from, address to, uint value)  returns (bool) //обриває перевід монет від третього лиця якщо ще не розблоковано.
     {
         if (locked == true) revert();
         return super.transferFrom(from, to, value);
     }
 
-    function init_pre_ico(address _pre_ico) onlyOwner
+    function init_pre_ico(address _pre_ico) onlyOwner //ініціалізація преICO, отримує параметром адресу контракту, може бути викликана тільки власником
     {
-        if (address(0) != address(pre_ico)) revert();
-        pre_ico = CrowdCoinPreICO(_pre_ico);
-        mint_tokens(pre_ico, pre_ico_allocation);
+        if (address(0) != address(pre_ico)) revert(); //перервати якщо вже було зроблено
+        pre_ico = CrowdCoinPreICO(_pre_ico);//присвоєння в змінну preICO контракту
+        mint_tokens(pre_ico, pre_ico_allocation);//виготовлення токенів для нього
     }
     
-    function close_pre_ico() onlyOwner
+    function close_pre_ico() onlyOwner //закриваємо preICO
     {
-        ico_allocation = add(ico_allocation, _balances[pre_ico]);   
-        burn_balance(pre_ico);
+        ico_allocation = add(ico_allocation, _balances[pre_ico]); //додаємо непродану суму в змінну для подальшого створення ICO токенів
+        burn_balance(pre_ico); //спалюємо неподане
     }
 
-    function init_ico(address _ico) onlyOwner
+    function init_ico(address _ico) onlyOwner  //ініціалізація ICO, отримує параметром адресу контракту, може бути викликана тільки власником
     {
-        if (address(0) != address(ico) || _balances[pre_ico] > 0) revert();
-        ico = CrowdCoinICO(_ico);
-        mint_tokens(ico, ico_allocation);
+        if (address(0) != address(ico) || _balances[pre_ico] > 0) revert();//перервати якщо вже було зроблено, або не була викликана функція закриттяpreICO
+        ico = CrowdCoinICO(_ico);//присвоєння в змінну ICO контракту
+        mint_tokens(ico, ico_allocation);//виготовлення токенів для нього
     }
     
-    function init_bounty_program(address _bounty) onlyOwner
+    function init_bounty_program(address _bounty) onlyOwner //ініціалізація Bounty, отримує параметром адресу контракту, може бути викликана тільки власником
     {
-        if (address(0) != address(bounty)) revert();
-        bounty = _bounty;
-        mint_tokens(bounty, bounty_allocation);
+        if (address(0) != address(bounty)) revert();//перервати якщо вже було зроблено
+        bounty = _bounty;//присвоєння в змінну bounty адреси
+        mint_tokens(bounty, bounty_allocation);//виготовлення токенів для нього
     }
     
-    function finalize() onlyOwner {
-        if (ico.successfully_closed() == false || locked == false) revert();
-        burn_balance(ico);
+    function finalize() onlyOwner { //закриття ICO, виготовлення токенів для команди
+        if (ico.successfully_closed() == false || locked == false) revert(); //перервати якщо ICO неуспішне, або це вже було зроблено
+        burn_balance(ico); //спалення залишку токенів ICO
 
-        uint256 percentOfTotal = 25;
+        uint256 percentOfTotal = 25; //процент для команди
         uint256 additionalTokens =
-            _supply * percentOfTotal / (100 - percentOfTotal);
+            _supply * percentOfTotal / (100 - percentOfTotal); //вираховуємо щоб монет для команди було 25% від кінцевої суми
         
-        mint_tokens(team_allocation, additionalTokens);
+        mint_tokens(team_allocation, additionalTokens); //виготовлення монет для команди
         
-        locked = false;
+        locked = false; //розблокування переводів монети
     }
 
-    function mint_tokens(address addr, uint amount) private
+    function mint_tokens(address addr, uint amount) private  //функція що виготовляє монети, приватна - може бути викликана тільки зсередини контракту
     {
-        _balances[addr] = add(_balances[addr], amount);
-        _supply = add(_supply, amount);
-        Transfer(0, addr, amount);
+        _balances[addr] = add(_balances[addr], amount); //додаємо до балансу монети
+        _supply = add(_supply, amount); //збільшуємо загальну кількість монет
+        Transfer(0, addr, amount); //створюємо сповіщення що з 0 гаманця було відправлено монети на певний гаманець
     }
     
-    function burn_balance(address addr) private
+    function burn_balance(address addr) private //функція що спалює монети, приватна - може бути викликана тільки зсередини контракту
     {
-        uint amount = _balances[addr];
+        uint amount = _balances[addr]; //баланс в змінну
         if (amount > 0)
         {
-            _balances[addr] = 0;
-            _supply = sub(_supply, amount);
-            Transfer(addr, 0, amount);
+            _balances[addr] = 0; //обнуляємо
+            _supply = sub(_supply, amount); //зменшуємо загальну кількість
+            Transfer(addr, 0, amount);//створюємо сповіщення що з певного гаманеця в 0 було відправлено монети
         }
     }
 }
 
 
-contract CrowdCoinPreICO is Owned, DSMath
+contract CrowdCoinPreICO is Owned, DSMath //контракт preICO
 {
-    CrowdCoin public token;
-    address public dev_multisig;
+    CrowdCoin public token;//монета
+    address public dev_multisig;//адреса на яку переводити ETH
     
-    uint public total_raised;
+    uint public total_raised;//скільки залучено ETH
 
-    uint public constant price =  0.0005 * 10**18; //have to set price here
+    uint public constant price =  0.0005 * 10**18; //ціна монети в wei (1ETH = 1**18 wei)
 
-    function my_token_balance() public constant returns (uint)
+    function my_token_balance() public constant returns (uint) //баланс монет preICO контракту
     {
         return token.balanceOf(this);
     }
 
-    modifier has_value
+    modifier has_value //мінімальна сума яку можна надіслати, зараз 0,01ETH
     {
         if (msg.value < 0.01 ether) revert();
         _;
     }
 
-    function CrowdCoinPreICO(address _token_address, address _dev_multisig)
+    function CrowdCoinPreICO(address _token_address, address _dev_multisig) //коснруктор, присвоює монету і гаманець для ETH
     {
         token = CrowdCoin(_token_address);
         dev_multisig = _dev_multisig;
     }
     
-    function () has_value payable external 
+    function () has_value payable external //функція що приймає ETH
     {
-        if (my_token_balance() == 0) revert();
+        if (my_token_balance() == 0) revert(); //обрив якщо нема що продавати
 
-        var can_buy = wdiv(cast(msg.value), cast(price));
-        var buy_amount = cast(min(can_buy, my_token_balance()));
+        var can_buy = wdiv(cast(msg.value), cast(price)); //скільки хоче купити
+        var buy_amount = cast(min(can_buy, my_token_balance())); //скільки може купити
 
-        if (can_buy > buy_amount) revert();
+        if (can_buy > buy_amount) revert(); //якщо хоче більше чим може обрив
 
-        total_raised = add(total_raised, msg.value);
+        total_raised = add(total_raised, msg.value);//збільшуємо загальну суму приходу ETH на дану кількість
 
-        dev_multisig.transfer(this.balance); //transfer eth to dev
-        token.transfer(msg.sender, buy_amount); //transfer tokens to participant
+        dev_multisig.transfer(this.balance); //відправляємо ETH команді
+        token.transfer(msg.sender, buy_amount); //переводимо монети покупцю
     }
 }
 
-contract CrowdCoinICO is Owned, DSMath
+contract CrowdCoinICO is Owned, DSMath  //контракт ICO
 {
-    CrowdCoin public token;
-    address public dev_multisig; //multisignature wallet to collect funds
+    CrowdCoin public token;//монета
+    address public dev_multisig; //адреса на яку переводити ETH
     
-    uint public total_raised; //crowdsale total funds raised
+    uint public total_raised; //скільки залучено ETH
 
-    uint public constant start_time = 0;
-    uint public constant end_time = 0;
-    uint public constant goal = 100 ether;
-    uint256 public constant default_price = 0.0004 * 10**18;
+    uint public constant start_time = 0; //початок ICO - формат unix timestamp
+    uint public constant end_time = 0; //кінець ICO - формат unix timestamp
+    uint public constant goal = 100 ether; //необхідний мінімум для успіху
+    uint256 public constant default_price = 0.0004 * 10**18; //ціна без бонуса
     
-    mapping (uint => uint256) public price;
+    mapping (uint => uint256) public price; //ціни потижднево
 
-    mapping(address => uint) funded; //needed to save amounts of ETH for refund
+    mapping(address => uint) funded; //запусуємо сюда скільки кожен покупець дав ETH
     
-    modifier in_time //allows send eth only when crowdsale is active
+    modifier in_time //дозволить купувати монети тільки після початку і до кінця
     {
         if (time() < start_time || time() > end_time)  revert();
         _;
     }
 
-    function successfully_closed() public constant returns (bool)
+    function successfully_closed() public constant returns (bool) //каже чи успішнe ICO (має бути забрана мінімальна сума і пройдений час або розпродано все)
     {
         return time() > start_time && (time() > end_time || my_token_balance() == 0) && total_raised >= goal;
     }
     
-    function time() public constant returns (uint)
+    function time() public constant returns (uint) //поточний час
     {
         return block.timestamp;
     }
     
-    function my_token_balance() public constant returns (uint)
+    function my_token_balance() public constant returns (uint) //баланс монет в ICO
     {
         return token.balanceOf(this);
     }
 
-    modifier has_value
+    modifier has_value //дозволений мінімум для покупки
     {
         if (msg.value < 0.01 ether) revert();
         _;
     }
 
-    function CrowdCoinICO(address _token_address, address _dev_multisig)
+    function CrowdCoinICO(address _token_address, address _dev_multisig) //конструктор
     {
-        token = CrowdCoin(_token_address);
-        dev_multisig = _dev_multisig;
+        token = CrowdCoin(_token_address); //присвоюєм монету з якою працюємо
+        dev_multisig = _dev_multisig;//присвоюєм гаманець на який переводити eth
         
-        price[0] = 0.0001 * 10**18;
-        price[1] = 0.0002 * 10**18;
-        price[2] = 0.0003 * 10**18;
-        price[3] = 0.0004 * 10**18;
+        price[0] = 0.0001 * 10**18; //ціна 1 тиждень
+        price[1] = 0.0002 * 10**18; //ціна 2 тиждень
+        price[2] = 0.0003 * 10**18; //ціна 3 тиждень
+        price[3] = 0.0004 * 10**18; //ціна 4 тиждень
     }
     
-    function () has_value in_time payable external 
+    function () has_value in_time payable external //функція для покупки
     {
-        if (my_token_balance() == 0) revert();
+        if (my_token_balance() == 0) revert(); //якщо всьо розпродали обрив
 
-        var can_buy = wdiv(cast(msg.value), cast(get_current_price()));
-        var buy_amount = cast(min(can_buy, my_token_balance()));
+        var can_buy = wdiv(cast(msg.value), cast(get_current_price())); //скільки хоче
+        var buy_amount = cast(min(can_buy, my_token_balance()));//скільки може
 
-        if (can_buy > buy_amount) revert();
+        if (can_buy > buy_amount) revert();//якщо хоче більше чим може обрив
 
-        total_raised = add(total_raised, msg.value);
+        total_raised = add(total_raised, msg.value);//обновляєм зібрану суму
 
-        dev_multisig.transfer(this.balance); //transfer eth to dev
-        token.transfer(msg.sender, buy_amount); //transfer tokens to participant
+        token.transfer(msg.sender, buy_amount); //переводимо монети покупцю
     }
     
-    function refund()
+    function refund() //можливість забрати гроші покупцем після завершення якщо мінімум не назбирано
     {
         if (total_raised >= goal || time() < end_time) revert();
         var amount = funded[msg.sender];
@@ -479,60 +478,60 @@ contract CrowdCoinICO is Owned, DSMath
         }
     }
     
-    function collect() //collect eth by devs if min goal reached
+    function collect() //можливість забрати гроші командою, якщо мінімум було зібрано
     {
         if (total_raised < goal) revert();
         dev_multisig.transfer(this.balance);
     }
     
-    function get_current_price() constant returns (uint256) {
+    function get_current_price() constant returns (uint256) { //поточний прайс, залезить від поточного тиждня
         return price[current_week()] == 0 ? default_price : price[current_week()];
     }
     
-    function current_week() constant returns (uint) {
+    function current_week() constant returns (uint) { //поточний тиждень
         return sub(block.timestamp, start_time) / 7 days;
     }
 }
 
 
-contract CrowdDevAllocation is Owned
+contract CrowdDevAllocation is Owned //контракт що зберігатиме монети команди
 {
-    CrowdCoin public token;
-    uint public initial_time;
-    address tokens_multisig;
+    CrowdCoin public token;//монета
+    uint public initial_time;//час від якого відштовхуємося
+    address tokens_multisig;//куда відправляти монети
 
-    mapping(uint => bool) public unlocked;
-    mapping(uint => uint) public unlock_times;
-    mapping(uint => uint) unlock_values;
+    mapping(uint => bool) public unlocked;//що біло відправлено
+    mapping(uint => uint) public unlock_times;//коли можна відправити
+    mapping(uint => uint) unlock_values;//скільки можна відправити
     
-    function CrowdDevAllocation(address _token)
+    function CrowdDevAllocation(address _token)//конструктор, присвоюємо монету
     {
         token = CrowdCoin(_token);
     }
     
-    function init() onlyOwner
+    function init() onlyOwner //ініціалізація
     {
-        if (token.balanceOf(this) == 0 || initial_time != 0) revert();
-        initial_time = block.timestamp;
-        uint256 balance = token.balanceOf(this);
+        if (token.balanceOf(this) == 0 || initial_time != 0) revert(); //обрив якщо вже ініціалізовано, або нема монет на балансі
+        initial_time = block.timestamp; //поточний час, від нього відштовхуємся
+        uint256 balance = token.balanceOf(this); //баланс (25% від всіх монет)
 
-        unlock_values[0] = balance / 100 * 33;
-        unlock_values[1] = balance / 100 * 33;
-        unlock_values[2] = balance / 100 * 34;
+        unlock_values[0] = balance / 100 * 33; //перший раз віддати 33%
+        unlock_values[1] = balance / 100 * 33; //другий раз віддати 33%
+        unlock_values[2] = balance / 100 * 34; //другий раз віддати 34%
 
-        unlock_times[0] = 180 days; //33% of tokens will be available after 180 days
-        unlock_times[1] = 1080 days; //33% of tokens will be available after 1080 days
-        unlock_times[2] = 1800 days; //34% of tokens will be available after 1800 days
+        unlock_times[0] = 180 days; //перша порція через 180 днів
+        unlock_times[1] = 1080 days; //перша порція через 1080 днів
+        unlock_times[2] = 1800 days; //перша порція через 1800 днів
     }
 
-    function unlock(uint part)
+    function unlock(uint part) //виводим монети команди
     {
-        if (unlocked[part] == true || block.timestamp < initial_time + unlock_times[part] || unlock_values[part] == 0) revert();
-        token.transfer(tokens_multisig, unlock_values[part]);
-        unlocked[part] = true;
+        if (unlocked[part] == true || block.timestamp < initial_time + unlock_times[part] || unlock_values[part] == 0) revert(); //якщо вже виведено або час ще не настав - обрив
+        token.transfer(tokens_multisig, unlock_values[part]); //виводимо
+        unlocked[part] = true; //записуємо що партія вже виведена
     }
 }
 
-contract MigrationAgent {
+contract MigrationAgent { //інтерфейс контракту що буде виступати в ролі міграційного агента
     function migrateFrom(address _from, uint256 _value);
 }
